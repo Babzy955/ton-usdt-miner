@@ -1,28 +1,37 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>TON Miner</title>
-  <style>
-    body { font-family: Arial, sans-serif; background:#111; color:#fff; text-align:center; padding:20px; }
-    .card { background:#222; padding:20px; border-radius:12px; box-shadow:0 0 10px rgba(0,0,0,0.5); }
-    h1 { color:#0f0; }
-    .balance { font-size:1.5em; margin:20px 0; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TON Miner App</title>
+<style>
+    body { font-family: Arial, sans-serif; background: #111; color: #0f0; text-align: center; padding-top: 50px; }
+    h1 { font-size: 2em; margin-bottom: 20px; }
+    #balance { font-size: 1.5em; margin-top: 20px; }
+</style>
 </head>
 <body>
-  <div class="card">
-    <h1>TON Miner</h1>
-    <p>Earn USDT gradually, paid every 3 months.</p>
-    <div class="balance" id="balance">Loading...</div>
-    <button onclick="refreshBalance()">🔄 Refresh</button>
-  </div>
+<h1>💰 TON Miner</h1>
+<p>Your miner is running!</p>
+<div id="balance">USDT Mined: 0.00000001</div>
 
-  <script>
-    async function refreshBalance() {
-      // You’d normally fetch balance from your bot backend API
-      document.getElementById("balance").innerText = "USDT Balance: 0.123456";
-    }
-    refreshBalance();
-  </script>
+<script>
+let balance = 0.00000001;
+const quarterlyReturn = 0.03;
+const quarterSeconds = 90 * 24 * 3600;
+let startTime = Date.now() / 1000;
+
+function updateBalance() {
+    const now = Date.now() / 1000;
+    const elapsed = now - startTime;
+    const progress = elapsed / quarterSeconds;
+    balance = 0.00000001 * (1 + quarterlyReturn * progress);
+    document.getElementById('balance').innerText = `USDT Mined: ${balance.toFixed(8)}`;
+    requestAnimationFrame(updateBalance);
+}
+
+// Start updating
+updateBalance();
+</script>
 </body>
 </html>
