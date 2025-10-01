@@ -8,7 +8,10 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 # =========================
 # CONFIG
 # =========================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Set this in Railway Variables
+
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable not set!")
 
 # Game config
 GAME_CONFIG = {
@@ -19,7 +22,7 @@ GAME_CONFIG = {
 }
 
 # =========================
-# USERS STORAGE (in-memory for now)
+# USERS STORAGE (in-memory)
 # =========================
 USERS = {}
 
@@ -29,18 +32,20 @@ def create_user(user_id, username):
             "username": username,
             "ton_invested": 0,
             "miner_usdt": GAME_CONFIG['start_usdt'],
-            "miner_start_time": None
+            "miner_start_time": time.time()
         }
 
 def update_miner(user_id):
     user = USERS[user_id]
-    if not user['miner_start_time']:
-        return
     elapsed_seconds = time.time() - user['miner_start_time']
-    # 3 months = 90 days ~= 7776000 seconds
-    total_quarter_seconds = 90 * 24 * 3600
-    progress = min(elapsed_seconds / total_quarter_seconds, 1.0)
-    user['miner_usdt'] = GAME_CONFIG['start_usdt'] + GAME_CONFIG['quarterly_return'] * progress
+    total_quarter_seconds = 90 * 24 * 3600  # 3 months
+    progress = elapsed_seconds / total_quarter_seconds
+    # Continuous mining: reset start time every quarter but keep compounding
+    quarters_elapsed = int(progress)
+    fractional = progress - quarters_elapsed
+    # USDT increases linearly within the current quarter
+    user['miner_usdt'] = GAME_CONFIG['start_usdt'] * (1 + GAME_CONFIG['quarterly_return'] * quarters_elapsed) \
+                         + GAME_CONFIG['start_usdt'] * GAME_CONFIG['quarterly_return'] * fractional
 
 # =========================
 # COMMANDS
@@ -80,7 +85,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 # BACKGROUND TASK TO INCREMENT MINER USDT
 # =========================
-async def miner_loop(application):
+async def miner_loop():
     while True:
         for user_id in USERS:
             update_miner(user_id)
@@ -94,8 +99,8 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
 
-    # Run background miner loop
-    application.job_queue.run_repeating(lambda _: asyncio.create_task(miner_loop(application)), interval=GAME_CONFIG['update_interval'], first=0)
+    # Start miner background loop
+    asyncio.create_task(miner_loop())
 
     print("🤖 Bot started!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
