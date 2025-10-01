@@ -1,19 +1,22 @@
 import os
 import time
-from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import asyncio
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import psycopg2
+from psycopg2.extras import RealDictCursor
+import json
 
-# ---------------- Load environment variables ---------------- #
-load_dotenv()
-TOKEN = os.getenv('BOT_TOKEN')
-DATABASE_URL = os.getenv('DATABASE_URL')
+# Environment variables (set these in your host/container)
+TOKEN = os.environ.get('BOT_TOKEN', '8309297935:AAFev_cuH-HUUe_XxIaKdWpXqgiB56OPQqg')
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
-if not TOKEN:
-    raise Exception("BOT_TOKEN not found in environment variables!")
-if not DATABASE_URL:
-    raise Exception("DATABASE_URL not found in environment variables!")
+# Database setup
+def get_db_connection():
+    if not DATABASE_URL:
+        raise Exception("DATABASE_URL environment variable not set!")
+    return psycopg2.connect(DATABASE_URL)
 
 # ---------------- Database Setup ---------------- #
 def get_db_connection():
