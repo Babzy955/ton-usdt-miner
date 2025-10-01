@@ -1,17 +1,12 @@
-import os
 import time
 import asyncio
-from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # =========================
 # CONFIG
 # =========================
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Set this in Railway Variables
-
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable not set!")
+BOT_TOKEN = "8235411673:AAGJBuKA0Y2PIGr06f12onmdRNX472123kc"
 
 # Game config
 GAME_CONFIG = {
@@ -22,7 +17,7 @@ GAME_CONFIG = {
 }
 
 # =========================
-# USERS STORAGE (in-memory)
+# USERS STORAGE (in-memory for now)
 # =========================
 USERS = {}
 
@@ -38,14 +33,11 @@ def create_user(user_id, username):
 def update_miner(user_id):
     user = USERS[user_id]
     elapsed_seconds = time.time() - user['miner_start_time']
-    total_quarter_seconds = 90 * 24 * 3600  # 3 months
+    # 3 months = 90 days ~= 7776000 seconds
+    total_quarter_seconds = 90 * 24 * 3600
     progress = elapsed_seconds / total_quarter_seconds
-    # Continuous mining: reset start time every quarter but keep compounding
-    quarters_elapsed = int(progress)
-    fractional = progress - quarters_elapsed
-    # USDT increases linearly within the current quarter
-    user['miner_usdt'] = GAME_CONFIG['start_usdt'] * (1 + GAME_CONFIG['quarterly_return'] * quarters_elapsed) \
-                         + GAME_CONFIG['start_usdt'] * GAME_CONFIG['quarterly_return'] * fractional
+    # Continuous mining forever
+    user['miner_usdt'] = GAME_CONFIG['start_usdt'] * (1 + GAME_CONFIG['quarterly_return'] * progress)
 
 # =========================
 # COMMANDS
@@ -99,11 +91,11 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
 
-    # Start miner background loop
+    # Run background miner loop
     asyncio.create_task(miner_loop())
 
     print("🤖 Bot started!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
