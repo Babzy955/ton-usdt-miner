@@ -1,15 +1,23 @@
 import os
 import time
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import psycopg2
 
+# ---------------- Load environment variables ---------------- #
+load_dotenv()
+TOKEN = os.getenv('BOT_TOKEN')
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+if not TOKEN:
+    raise Exception("BOT_TOKEN not found in environment variables!")
+if not DATABASE_URL:
+    raise Exception("DATABASE_URL not found in environment variables!")
+
 # ---------------- Database Setup ---------------- #
 def get_db_connection():
-    database_url = os.getenv('DATABASE_URL')
-    if not database_url:
-        raise Exception("DATABASE_URL environment variable not set!")
-    return psycopg2.connect(database_url)
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     conn = get_db_connection()
@@ -39,7 +47,7 @@ def init_db():
     conn.close()
 
 # ---------------- Game Config ---------------- #
-QUARTER_SECONDS = 3600*24*90  # 90 days approx
+QUARTER_SECONDS = 3600*24*90  # ~90 days
 MINER_YIELD = {
     'small': 0.04,
     'medium': 0.04,
@@ -94,7 +102,6 @@ def calculate_quarterly_yield(user_id):
         quarters_passed = elapsed / QUARTER_SECONDS
         usdt_earned = ton_invested * ton_price * MINER_YIELD.get(miner_type,0) * quarters_passed
         total_usdt += usdt_earned
-        # Update last_claim
         c.execute('UPDATE miners SET last_claim = %s WHERE user_id = %s AND miner_type = %s', (now, user_id, miner_type))
     
     conn.commit()
@@ -102,21 +109,16 @@ def calculate_quarterly_yield(user_id):
     return total_usdt
 
 def calculate_min_withdrawal(user_id):
-    # Minimum withdraw is 1 quarter yield of total TON invested
     user = get_user(user_id)
     if not user:
         return 0
-    total_invested_ton = user[5]
-    # Use weighted average price of miners for approximation
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('SELECT ton_invested, ton_price_at_purchase FROM miners WHERE user_id = %s', (user_id,))
     miners = c.fetchall()
     conn.close()
-    
     total_usd = sum(ton*price for ton,price in miners)
-    min_withdraw = total_usd * 0.04  # one quarter yield
-    return min_withdraw
+    return total_usd * 0.04
 
 # ---------------- Bot Commands ---------------- #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,10 +167,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith('miner_'):
         miner_type = query.data.split('_')[1]
         cost = MINER_COSTS[miner_type]
-        current_ton_price = 2.75  # replace with API fetch if desired
+        current_ton_price = 2.75  # replace with live API if desired
         
         if ton_balance >= cost:
-            # Deduct TON
             update_user(user.id, ton_balance=ton_balance-cost, total_ton_invested=user_data[5]+cost)
             now = time.time()
             conn = get_db_connection()
@@ -189,7 +190,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'claim_yield':
         pending_usdt = calculate_quarterly_yield(user.id)
         min_withdraw = calculate_min_withdrawal(user.id)
-        
         if pending_usdt >= min_withdraw:
             new_balance = usdt_balance + pending_usdt
             update_user(user.id, usdt_balance=new_balance, total_usdt_mined=user_data[4]+pending_usdt)
@@ -200,15 +200,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- Stats ---------------- #
     elif query.data == 'stats':
         pending_usdt = calculate_quarterly_yield(user.id)
-        display_balance = usdt_balance + pending_usdt
-        
         keyboard = [
             [InlineKeyboardButton("💵 Claim USDT Yield", callback_data='claim_yield')],
             [InlineKeyboardButton("💰 Buy Miner", callback_data='buy_miner')],
             [InlineKeyboardButton("🔙 Back", callback_data='back')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         await query.edit_message_text(
             f"📊 **Your Stats**\n\n"
             f"💰 TON Balance: {ton_balance:.6f}\n"
@@ -237,7 +234,6 @@ async def start_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ---------------- Main ---------------- #
 def main():
     init_db()
-    TOKEN = os.getenv('BOT_TOKEN')
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
