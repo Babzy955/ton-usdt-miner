@@ -4,15 +4,22 @@ import asyncio
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import json
 
 # Database setup
+def get_db_connection():
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        raise Exception("DATABASE_URL environment variable not set!")
+    return psycopg2.connect(database_url)
+
 def init_db():
-    conn = sqlite3.connect('mining_game.db')
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (user_id INTEGER PRIMARY KEY,
+                 (user_id BIGINT PRIMARY KEY,
                   username TEXT,
                   ton_balance REAL DEFAULT 0,
                   gems INTEGER DEFAULT 0,
@@ -40,28 +47,29 @@ GAME_CONFIG = {
 
 # User management
 def get_user(user_id):
-    conn = sqlite3.connect('mining_game.db')
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+    c.execute('SELECT * FROM users WHERE user_id = %s', (user_id,))
     user = c.fetchone()
     conn.close()
     return user
 
 def create_user(user_id, username):
-    conn = sqlite3.connect('mining_game.db')
+    conn = get_db_connection()
     c = conn.cursor()
     now = time.time()
-    c.execute('''INSERT OR IGNORE INTO users 
+    c.execute('''INSERT INTO users 
                  (user_id, username, last_claim, created_at) 
-                 VALUES (?, ?, ?, ?)''', (user_id, username, now, now))
+                 VALUES (%s, %s, %s, %s)
+                 ON CONFLICT (user_id) DO NOTHING''', (user_id, username, now, now))
     conn.commit()
     conn.close()
 
 def update_user(user_id, **kwargs):
-    conn = sqlite3.connect('mining_game.db')
+    conn = get_db_connection()
     c = conn.cursor()
     for key, value in kwargs.items():
-        c.execute(f'UPDATE users SET {key} = ? WHERE user_id = ?', (value, user_id))
+        c.execute(f'UPDATE users SET {key} = %s WHERE user_id = %s', (value, user_id))
     conn.commit()
     conn.close()
 
@@ -344,7 +352,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif query.data == 'leaderboard':
-        conn = sqlite3.connect('mining_game.db')
+        conn = get_db_connection()
         c = conn.cursor()
         c.execute('SELECT username, total_mined FROM users ORDER BY total_mined DESC LIMIT 10')
         top_users = c.fetchall()
@@ -408,9 +416,10 @@ async def admin_gems(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /admingems <amount>")
 
 def main():
+    # Initialize database
     init_db()
     
-    # Your bot token - for production, use environment variable instead
+    # Your bot token
     TOKEN = os.getenv('BOT_TOKEN', '8309297935:AAFev_cuH-HUUe_XxIaKdWpXqgiB56OPQqg')
     
     application = Application.builder().token(TOKEN).build()

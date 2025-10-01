@@ -1,2 +1,2 @@
-python-telegram-bot==20.7
-sqlite3
+python-telegram-bot[all]==20.7
+psycopg2-binary
