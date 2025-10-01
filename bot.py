@@ -3,22 +3,15 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# =========================
-# CONFIG
-# =========================
 BOT_TOKEN = "8235411673:AAGJBuKA0Y2PIGr06f12onmdRNX472123kc"
 
-# Game config
 GAME_CONFIG = {
-    'miner_price_ton': 10,       # Example: 10 TON per miner
-    'quarterly_return': 0.03,    # 3% every 3 months
+    'miner_price_ton': 10,
+    'quarterly_return': 0.03,
     'start_usdt': 0.00000001,
-    'update_interval': 60         # seconds, how often USDT increases
+    'update_interval': 60
 }
 
-# =========================
-# USERS STORAGE (in-memory for now)
-# =========================
 USERS = {}
 
 def create_user(user_id, username):
@@ -32,18 +25,11 @@ def create_user(user_id, username):
 
 def update_miner(user_id):
     user = USERS[user_id]
-    if not user['miner_start_time']:
-        return
     elapsed_seconds = time.time() - user['miner_start_time']
-    # 3 months = 90 days ~= 7776000 seconds
     total_quarter_seconds = 90 * 24 * 3600
-    # Continuous mining: allow multiple quarters
     quarters_elapsed = elapsed_seconds / total_quarter_seconds
     user['miner_usdt'] = GAME_CONFIG['start_usdt'] * ((1 + GAME_CONFIG['quarterly_return']) ** quarters_elapsed)
 
-# =========================
-# COMMANDS
-# =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_user(user.id, user.username or user.first_name)
@@ -76,29 +62,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
-# =========================
-# BACKGROUND TASK TO INCREMENT MINER USDT
-# =========================
 async def miner_loop():
     while True:
         for user_id in USERS:
             update_miner(user_id)
         await asyncio.sleep(GAME_CONFIG['update_interval'])
 
-# =========================
-# MAIN
-# =========================
-async def main():
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
-
-    # Start background miner loop
+# This will run after the bot is fully initialized
+async def on_startup(application: Application):
     application.create_task(miner_loop())
 
+def main():
+    application = Application.builder().token(BOT_TOKEN).post_init(on_startup).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
     print("🤖 Bot started!")
-    await application.run_polling()
+    application.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
