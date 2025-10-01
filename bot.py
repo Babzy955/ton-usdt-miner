@@ -8,7 +8,6 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 # =========================
 BOT_TOKEN = "8235411673:AAGJBuKA0Y2PIGr06f12onmdRNX472123kc"
 
-# Game config
 GAME_CONFIG = {
     'miner_price_ton': 10,  # Example: 10 TON per miner
     'quarterly_return': 0.03,  # 3% every 3 months
@@ -17,7 +16,7 @@ GAME_CONFIG = {
 }
 
 # =========================
-# USERS STORAGE (in-memory for now)
+# USERS STORAGE (in-memory)
 # =========================
 USERS = {}
 
@@ -33,11 +32,9 @@ def create_user(user_id, username):
 def update_miner(user_id):
     user = USERS[user_id]
     elapsed_seconds = time.time() - user['miner_start_time']
-    # 3 months = 90 days ~= 7776000 seconds
     total_quarter_seconds = 90 * 24 * 3600
     progress = elapsed_seconds / total_quarter_seconds
-    # Continuous mining forever
-    user['miner_usdt'] = GAME_CONFIG['start_usdt'] * (1 + GAME_CONFIG['quarterly_return'] * progress)
+    user['miner_usdt'] = GAME_CONFIG['start_usdt'] + GAME_CONFIG['quarterly_return'] * min(progress, 1.0)
 
 # =========================
 # COMMANDS
@@ -75,7 +72,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # =========================
-# BACKGROUND TASK TO INCREMENT MINER USDT
+# BACKGROUND TASK
 # =========================
 async def miner_loop():
     while True:
@@ -90,10 +87,7 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
-
-    # Run background miner loop
-    asyncio.create_task(miner_loop())
-
+    application.create_task(miner_loop())
     print("🤖 Bot started!")
     application.run_polling()
 
