@@ -22,6 +22,7 @@ def init_db():
                   ton_balance REAL DEFAULT 0,
                   usdt_balance REAL DEFAULT 0,
                   total_usdt_mined REAL DEFAULT 0,
+                  total_ton_invested REAL DEFAULT 0,
                   created_at REAL)''')
     
     # Miners table
@@ -38,7 +39,7 @@ def init_db():
     conn.close()
 
 # ---------------- Game Config ---------------- #
-QUARTER_SECONDS = 3600*24*90  # approx 90 days
+QUARTER_SECONDS = 3600*24*90  # 90 days approx
 MINER_YIELD = {
     'small': 0.04,
     'medium': 0.04,
@@ -100,6 +101,23 @@ def calculate_quarterly_yield(user_id):
     conn.close()
     return total_usdt
 
+def calculate_min_withdrawal(user_id):
+    # Minimum withdraw is 1 quarter yield of total TON invested
+    user = get_user(user_id)
+    if not user:
+        return 0
+    total_invested_ton = user[5]
+    # Use weighted average price of miners for approximation
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('SELECT ton_invested, ton_price_at_purchase FROM miners WHERE user_id = %s', (user_id,))
+    miners = c.fetchall()
+    conn.close()
+    
+    total_usd = sum(ton*price for ton,price in miners)
+    min_withdraw = total_usd * 0.04  # one quarter yield
+    return min_withdraw
+
 # ---------------- Bot Commands ---------------- #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -108,15 +126,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("💰 Buy Miner", callback_data='buy_miner')],
         [InlineKeyboardButton("💵 Claim USDT Yield", callback_data='claim_yield')],
-        [InlineKeyboardButton("📊 Stats", callback_data='stats')]
+        [InlineKeyboardButton("📊 Stats", callback_data='stats')],
+        [InlineKeyboardButton("ℹ️ Help/Info", callback_data='help')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "🎮 **TON Miner – Quarterly Yield Edition**\n\n"
+        "🎮 **TON Miner – Quarterly USDT Yield**\n\n"
         "Stake TON by buying miners.\n"
-        "Each miner pays 4% quarterly yield in USDT based on TON price at purchase.\n"
-        "Claim your USDT anytime!",
+        "Each miner pays 4% quarterly USDT yield based on TON price at purchase.\n"
+        "Claim your USDT anytime when you reach minimum withdrawal.",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
@@ -125,11 +144,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
+    create_user(user.id, user.username or user.first_name)
     user_data = get_user(user.id)
-    
-    if not user_data:
-        create_user(user.id, user.username or user.first_name)
-        user_data = get_user(user.id)
     
     ton_balance = user_data[2]
     usdt_balance = user_data[3]
@@ -137,22 +153,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- Buy Miner ---------------- #
     if query.data == 'buy_miner':
         keyboard = [
-            [InlineKeyboardButton("Small Miner (10 TON)", callback_data='miner_small')],
-            [InlineKeyboardButton("Medium Miner (25 TON)", callback_data='miner_medium')],
-            [InlineKeyboardButton("Large Miner (50 TON)", callback_data='miner_large')],
-            [InlineKeyboardButton("XL Miner (100 TON)", callback_data='miner_xl')],
+            [InlineKeyboardButton(f"Small Miner – {MINER_COSTS['small']} TON", callback_data='miner_small')],
+            [InlineKeyboardButton(f"Medium Miner – {MINER_COSTS['medium']} TON", callback_data='miner_medium')],
+            [InlineKeyboardButton(f"Large Miner – {MINER_COSTS['large']} TON", callback_data='miner_large')],
+            [InlineKeyboardButton(f"XL Miner – {MINER_COSTS['xl']} TON", callback_data='miner_xl')],
             [InlineKeyboardButton("🔙 Back", callback_data='back')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("💰 **Buy Miners with TON**\nEarn 4% USDT per quarter.", reply_markup=reply_markup)
+        await query.edit_message_text("💰 **Buy Miners** – 4% USDT quarterly yield", reply_markup=reply_markup)
     
     elif query.data.startswith('miner_'):
         miner_type = query.data.split('_')[1]
         cost = MINER_COSTS[miner_type]
-        current_ton_price = 2.75  # You can replace this with API fetch
+        current_ton_price = 2.75  # replace with API fetch if desired
         
         if ton_balance >= cost:
-            update_user(user.id, ton_balance=ton_balance-cost)
+            # Deduct TON
+            update_user(user.id, ton_balance=ton_balance-cost, total_ton_invested=user_data[5]+cost)
             now = time.time()
             conn = get_db_connection()
             c = conn.cursor()
@@ -170,60 +187,62 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ---------------- Claim Yield ---------------- #
     elif query.data == 'claim_yield':
-        usdt_earned = calculate_quarterly_yield(user.id)
-        if usdt_earned > 0:
-            new_balance = usdt_balance + usdt_earned
-            update_user(user.id, usdt_balance=new_balance, total_usdt_mined=user_data[4]+usdt_earned)
-            await query.answer(f"✅ Claimed {usdt_earned:.2f} USDT from miners!", show_alert=True)
+        pending_usdt = calculate_quarterly_yield(user.id)
+        min_withdraw = calculate_min_withdrawal(user.id)
+        
+        if pending_usdt >= min_withdraw:
+            new_balance = usdt_balance + pending_usdt
+            update_user(user.id, usdt_balance=new_balance, total_usdt_mined=user_data[4]+pending_usdt)
+            await query.answer(f"✅ Claimed {pending_usdt:.2f} USDT!", show_alert=True)
         else:
-            await query.answer("❌ No yield available yet.", show_alert=True)
+            await query.answer(f"❌ Minimum withdraw is {min_withdraw:.2f} USDT. Pending yield: {pending_usdt:.2f} USDT", show_alert=True)
     
     # ---------------- Stats ---------------- #
     elif query.data == 'stats':
-        # Calculate pending yield
         pending_usdt = calculate_quarterly_yield(user.id)
         display_balance = usdt_balance + pending_usdt
         
-        keyboard = [[InlineKeyboardButton("💵 Claim USDT Yield", callback_data='claim_yield')]]
+        keyboard = [
+            [InlineKeyboardButton("💵 Claim USDT Yield", callback_data='claim_yield')],
+            [InlineKeyboardButton("💰 Buy Miner", callback_data='buy_miner')],
+            [InlineKeyboardButton("🔙 Back", callback_data='back')]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
             f"📊 **Your Stats**\n\n"
             f"💰 TON Balance: {ton_balance:.6f}\n"
-            f"💵 USDT Balance: {display_balance:.2f}\n"
+            f"💵 USDT Balance: {usdt_balance:.2f} (Pending: {pending_usdt:.2f})\n"
             f"🏗 Total USDT Mined: {user_data[4]:.2f}",
             reply_markup=reply_markup
         )
     
+    elif query.data == 'help':
+        await query.edit_message_text(
+            "ℹ️ **How it works**\n\n"
+            "• Buy miners with TON.\n"
+            "• Each miner pays 4% quarterly USDT based on TON price at purchase.\n"
+            "• Claim USDT once pending yield reaches minimum withdrawal.\n"
+            "• Stats show your balances and pending yield.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data='back')]])
+        )
+    
     elif query.data == 'back':
-        await start(update, context)
+        await start_from_callback(update, context)
 
-# ---------------- Admin Command ---------------- #
-async def admin_add_ton(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != YOUR_ADMIN_ID:
-        return
-    try:
-        amount = float(context.args[0])
-        user_data = get_user(update.effective_user.id)
-        new_balance = user_data[2] + amount
-        update_user(update.effective_user.id, ton_balance=new_balance)
-        await update.message.reply_text(f"✅ Added {amount} TON. New balance: {new_balance}")
-    except:
-        await update.message.reply_text("Usage: /adminton <amount>")
+async def start_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await start(update, context)
 
 # ---------------- Main ---------------- #
 def main():
     init_db()
-    TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
-    
+    TOKEN = os.getenv('BOT_TOKEN')
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("adminton", admin_add_ton))
     application.add_handler(CallbackQueryHandler(button_handler))
-    
-    print("🤖 TON Miner Bot started!")
-    application.run_polling(allowed_updates=None)
+    print("🤖 TON Miner Bot running...")
+    application.run_polling()
 
 if __name__ == '__main__':
-    YOUR_ADMIN_ID = 8196865667  # Replace with your Telegram ID
     main()
