@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 # =========================
 # CONFIG
 # =========================
-BOT_TOKEN = "8235411673:AAGJBuKA0Y2PIGr06f12onmdRNX472123kc"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Game config
 GAME_CONFIG = {
