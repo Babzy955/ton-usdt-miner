@@ -1,102 +1,44 @@
-import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from flask import Flask, send_from_directory
-import threading
 import os
+import asyncio
+from flask import Flask, render_template_string
+from telegram.ext import Application, CommandHandler
 
-# ---------------------------
-# CONFIG
-# ---------------------------
-BOT_TOKEN = "8235411673:AAGJBuKA0Y2PIGr06f12onmdRNX472123kc"  # replace with your token
+TOKEN = os.getenv("BOT_TOKEN")
+PORT = int(os.environ.get("PORT", 8080))
 
-# Balance (mining simulation)
-user_balances = {}
-MINING_RATE = 0.000001  # USDT per second per user (adjust for 3% every 3 months)
-
-# ---------------------------
-# MINER LOOP
-# ---------------------------
-async def miner_loop():
-    while True:
-        for user_id in user_balances:
-            user_balances[user_id] += MINING_RATE
-        await asyncio.sleep(1)  # mine every second
-
-# ---------------------------
-# BOT COMMANDS
-# ---------------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in user_balances:
-        user_balances[user_id] = 0.0
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "💰 Open Miner App",
-                web_app=WebAppInfo(url="https://ton-usdt-miner-production.up.railway.app/miner")
-            )
-        ],
-        [
-            InlineKeyboardButton("📊 Stats", callback_data="stats")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        f"👋 Welcome {update.effective_user.first_name}! Your miner is ready. "
-        "Click below to view your balance and info.",
-        reply_markup=reply_markup
-    )
-
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    balance = user_balances.get(user_id, 0.0)
-    await query.edit_message_text(f"📊 Your current balance: {balance:.8f} USDT")
-
-# ---------------------------
-# FLASK APP (Mini App hosting)
-# ---------------------------
+# --- Flask App ---
 app = Flask(__name__)
 
+# Miner HTML (we’ll serve this directly here for simplicity)
+with open("miner.html", "r") as f:
+    MINER_HTML = f.read()
+
 @app.route("/")
-def home():
-    return "✅ Bot and Mini App are running!"
+def index():
+    return MINER_HTML
 
-@app.route("/miner")
-def miner():
-    return send_from_directory("static", "miner.html")
+# --- Telegram Bot ---
+async def start(update, context):
+    await update.message.reply_text("Welcome! The mini app is live here:\n"
+                                    "👉 https://ton-usdt-miner-production.up.railway.app/")
 
-@app.route("/miner.js")
-def miner_js():
-    return send_from_directory("static", "miner.js")
-
-@app.route("/style.css")
-def style_css():
-    return send_from_directory("static", "style.css")
-
-def run_flask():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-# ---------------------------
-# MAIN
-# ---------------------------
-async def main():
-    application = Application.builder().token(BOT_TOKEN).build()
-
+def setup_bot() -> Application:
+    application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(stats, pattern="stats"))
+    return application
 
-    # start mining loop
-    application.create_task(miner_loop())
+# --- Async Runner ---
+async def main():
+    application = setup_bot()
 
-    # run bot
-    await application.run_polling()
+    # Run bot in background
+    asyncio.create_task(application.run_polling())
+
+    # Run Flask inside loop
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None, lambda: app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+    )
 
 if __name__ == "__main__":
-    # start flask in a thread
-    threading.Thread(target=run_flask, daemon=True).start()
     asyncio.run(main())
