@@ -1,37 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TON Miner App</title>
-<style>
-    body { font-family: Arial, sans-serif; background: #111; color: #0f0; text-align: center; padding-top: 50px; }
-    h1 { font-size: 2em; margin-bottom: 20px; }
-    #balance { font-size: 1.5em; margin-top: 20px; }
-</style>
+  <meta charset="UTF-8">
+  <title>USDT Miner</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<h1>💰 TON Miner</h1>
-<p>Your miner is running!</p>
-<div id="balance">USDT Mined: 0.00000001</div>
+  <div class="container">
+    <h1>💰 USDT Mining Dashboard</h1>
+    <p id="desc">Your investment is mining automatically. Balance updates in real time!</p>
+    <h2 id="balance">0.00000000 USDT</h2>
+    <button onclick="refreshBalance()">🔄 Refresh</button>
+  </div>
 
-<script>
-let balance = 0.00000001;
-const quarterlyReturn = 0.03;
-const quarterSeconds = 90 * 24 * 3600;
-let startTime = Date.now() / 1000;
-
-function updateBalance() {
-    const now = Date.now() / 1000;
-    const elapsed = now - startTime;
-    const progress = elapsed / quarterSeconds;
-    balance = 0.00000001 * (1 + quarterlyReturn * progress);
-    document.getElementById('balance').innerText = `USDT Mined: ${balance.toFixed(8)}`;
-    requestAnimationFrame(updateBalance);
-}
-
-// Start updating
-updateBalance();
-</script>
+  <script src="/miner.js"></script>
 </body>
 </html>
+
